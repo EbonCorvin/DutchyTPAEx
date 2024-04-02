@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -14,9 +15,13 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 public class CommandHandler implements CommandExecutor {
     private final Tpa plugin;
+    
+    // TODO: Serialize and deserialize the waypoint list
+    private final HashMap<String, Location> teleportPoint;
 
     public CommandHandler(Tpa plugin) {
         this.plugin = plugin;
+		this.teleportPoint = new HashMap<String, Location>();
     }
 
     static HashMap<UUID, UUID> targetMap = new HashMap<>();
@@ -95,7 +100,7 @@ public class CommandHandler implements CommandExecutor {
                 // Used for integration with other plugins
                 SuccessfulTpaEvent event = new SuccessfulTpaEvent(tpRequester, tpRequester.getLocation());
                 Bukkit.getPluginManager().callEvent(event);
-
+                
                 // Teleport the player
                 tpRequester.teleport(senderP);
 
@@ -106,6 +111,63 @@ public class CommandHandler implements CommandExecutor {
         }
     }
 
+    private void handleTpaLocationCommand(CommandSender sender, String[] args) {
+    	final Player senderP = (Player) sender;
+        Location playerLocation = senderP.getLocation();
+        String playerWorld = playerLocation.getWorld().getName();	
+    	// TODO: Check if the user can add new waypoint (i.e. Op)
+    	if(args[1].equals("add")) {
+    		if(args.length<3) {
+    			sender.sendMessage(ChatColor.RED + "No location name is given!");
+    		}else {
+    			teleportPoint.put(args[2], playerLocation);
+    			sender.sendMessage(ChatColor.BLUE + "Location "+args[2]+" is added to the waypoint list!");
+    		}
+    	}
+    	if(args[1].equals("list")) {
+    		if(teleportPoint.size()==0) {
+    			sender.sendMessage(ChatColor.RED + "No location is defined yet!");
+    		}else {
+    			for(String key:teleportPoint.keySet()) {
+    				Location loc = teleportPoint.get(key);
+    				if(!loc.getWorld().getName().equals(playerWorld)) {
+    					sender.sendMessage(ChatColor.BLUE + "Location: " + key + ", world: "+loc.getWorld().getName());
+    				}else {
+    					int cost = calculateTeleportCost(playerLocation, loc);
+        				sender.sendMessage(ChatColor.BLUE + "Location: " + key + ", cost: "+cost);        					
+    				}
+    					
+    			}
+    		}
+    	}
+
+    	if(args[1].equals("go")) {
+    		if(args.length<3) {
+    			sender.sendMessage(ChatColor.RED + "No location name is given!");
+    		}else {
+    			Location pt = teleportPoint.get(args[2]);
+    			if(pt==null) {
+    				sender.sendMessage(ChatColor.RED + "The given location name does not exist!");
+    			}else {
+    				if(pt.getWorld().getName().equals(playerWorld)) {
+        				int cost = calculateTeleportCost(playerLocation, pt);
+        				int remainingLevel = (int) (senderP.getLevel() - cost);
+        				if(remainingLevel < 0) {
+        					sender.sendMessage(ChatColor.RED + "You don't have enough level to pay for the teleport fee!");
+        				}else {
+	        				sender.sendMessage(ChatColor.BLUE + "Teleporting to " + args[2] + ", it will cost you " + cost + " experience level.");
+	        				senderP.setLevel(remainingLevel);
+	        				senderP.teleport(pt);
+        				}
+        				
+    				}else {
+    					sender.sendMessage(ChatColor.RED + "You can't teleport to a waypoint of a different world!");
+    				}
+    			}
+    		}
+    	}
+    }
+    
     private void handleTpaCommand(CommandSender sender, String[] args) {
         // Check permissions
         if (!sender.hasPermission("tpa.tpa")) {
@@ -114,9 +176,14 @@ public class CommandHandler implements CommandExecutor {
         }
 
         // Check if a player name was provided
-        if (args.length != 1) {
+        if (args.length < 1) {
             sender.sendMessage(ChatColor.RED + "Invalid syntax!");
             return;
+        }
+                
+        if(args[0].equals("location")) {
+        	this.handleTpaLocationCommand(sender, args);
+        	return;
         }
 
         // Check if the target player exists
@@ -153,5 +220,12 @@ public class CommandHandler implements CommandExecutor {
                 CommandHandler.targetMap.remove(senderP.getUniqueId());
             }
         }).runTaskLaterAsynchronously(this.plugin, 6000L);
+    }
+
+    // TODO: Consider allowing player to pay with other item other than xp level
+    private int calculateTeleportCost(Location pt1, Location pt2) {
+		long distance = Math.round(pt1.distance(pt2));
+		int cost = Math.round(distance / 16 / 10);
+		return cost;
     }
 }
