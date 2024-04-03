@@ -4,9 +4,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -15,16 +20,68 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 public class CommandHandler implements CommandExecutor {
     private final Tpa plugin;
-    
-    // TODO: Serialize and deserialize the waypoint list
-    private final HashMap<String, Location> teleportPoint;
+    private final HashMap<String, Location> waypoints = new HashMap<String, Location>();
+    private RandomAccessFile wpFile;
+    private final Object fileLock = new Object();
 
     public CommandHandler(Tpa plugin) {
         this.plugin = plugin;
-		this.teleportPoint = new HashMap<String, Location>();
+		File dataDir = plugin.getDataFolder();
+		dataDir.mkdir();
+    	File file = new File(dataDir, "waypoint.bin");
+        try {
+    		file.createNewFile();
+    		// Don't use rwd, it's slow as hell
+    		wpFile = new RandomAccessFile(file, "rw");
+			readWayPoints();
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
     }
 
     static HashMap<UUID, UUID> targetMap = new HashMap<>();
+    
+    private void readWayPoints() throws IOException {
+		synchronized(fileLock) {
+ 	    	waypoints.clear();
+	    	wpFile.seek(0);
+			while(wpFile.getFilePointer() < wpFile.length()) {
+				String wayptName = wpFile.readUTF();
+				int x = wpFile.readInt();
+				int z = wpFile.readInt();
+				int y = wpFile.readShort();
+				long uuidH = wpFile.readLong();
+				long uuidL = wpFile.readLong();
+				UUID uuid = new UUID(uuidH, uuidL);
+				World wpWorld = plugin.getServer().getWorld(uuid);
+				if(wpWorld == null) {
+					System.out.println("Can't found the world of this waypoint entry");
+				}
+				Location location = new Location(wpWorld, x, y, z);
+				waypoints.put(wayptName, location);
+			}   			
+		}
+    }
+    
+    private void writeWayPoints() {
+		try {
+			wpFile.setLength(0);
+			for(String key:waypoints.keySet()) {
+				Location location = waypoints.get(key);
+				wpFile.writeUTF(key);
+	    		wpFile.writeInt(location.getBlockX());
+	    		wpFile.writeInt(location.getBlockZ());
+	    		wpFile.writeShort(location.getBlockY());
+				UUID worldUUID = location.getWorld().getUID();
+				wpFile.writeLong(worldUUID.getMostSignificantBits());
+				wpFile.writeLong(worldUUID.getLeastSignificantBits());
+			}
+			wpFile.getChannel().force(false);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    }
 
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
@@ -120,16 +177,16 @@ public class CommandHandler implements CommandExecutor {
     		if(args.length<3) {
     			sender.sendMessage(ChatColor.RED + "No location name is given!");
     		}else {
-    			teleportPoint.put(args[2], playerLocation);
+    			waypoints.put(args[2], playerLocation);
+    			writeWayPoints();
     			sender.sendMessage(ChatColor.BLUE + "Location "+args[2]+" is added to the waypoint list!");
     		}
-    	}
-    	if(args[1].equals("list")) {
-    		if(teleportPoint.size()==0) {
+    	} else if(args[1].equals("list")) {
+    		if(waypoints.size()==0) {
     			sender.sendMessage(ChatColor.RED + "No location is defined yet!");
     		}else {
-    			for(String key:teleportPoint.keySet()) {
-    				Location loc = teleportPoint.get(key);
+    			for(String key:waypoints.keySet()) {
+    				Location loc = waypoints.get(key);
     				if(!loc.getWorld().getName().equals(playerWorld)) {
     					sender.sendMessage(ChatColor.BLUE + "Location: " + key + ", world: "+loc.getWorld().getName());
     				}else {
@@ -139,13 +196,11 @@ public class CommandHandler implements CommandExecutor {
     					
     			}
     		}
-    	}
-
-    	if(args[1].equals("go")) {
+    	} else if(args[1].equals("go")) {
     		if(args.length<3) {
     			sender.sendMessage(ChatColor.RED + "No location name is given!");
     		}else {
-    			Location pt = teleportPoint.get(args[2]);
+    			Location pt = waypoints.get(args[2]);
     			if(pt==null) {
     				sender.sendMessage(ChatColor.RED + "The given location name does not exist!");
     			}else {
@@ -157,7 +212,11 @@ public class CommandHandler implements CommandExecutor {
         				}else {
 	        				sender.sendMessage(ChatColor.BLUE + "Teleporting to " + args[2] + ", it will cost you " + cost + " experience level.");
 	        				senderP.setLevel(remainingLevel);
-	        				senderP.teleport(pt);
+		    				pt = pt.clone();
+        					while(!pt.getBlock().isEmpty()) {
+        						pt.add(0, 1, 0);
+        					}
+        					senderP.teleport(pt);
         				}
         				
     				}else {
@@ -165,7 +224,9 @@ public class CommandHandler implements CommandExecutor {
     				}
     			}
     		}
-    	}
+    	} else {
+    		sender.sendMessage(ChatColor.RED + "Invalid action, we accept tpa location go, tpa location add and tpa location list");
+    	}    	
     }
     
     private void handleTpaCommand(CommandSender sender, String[] args) {
@@ -182,7 +243,9 @@ public class CommandHandler implements CommandExecutor {
         }
                 
         if(args[0].equals("location")) {
-        	this.handleTpaLocationCommand(sender, args);
+        	synchronized(fileLock) {
+        		this.handleTpaLocationCommand(sender, args);
+        	}
         	return;
         }
 
