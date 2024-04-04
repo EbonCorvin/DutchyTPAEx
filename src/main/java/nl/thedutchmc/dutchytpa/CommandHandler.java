@@ -172,37 +172,50 @@ public class CommandHandler implements CommandExecutor {
     	final Player senderP = (Player) sender;
         Location playerLocation = senderP.getLocation();
         String playerWorld = playerLocation.getWorld().getName();	
-    	// TODO: Check if the user can add new waypoint (i.e. Op)
     	if(args[1].equals("add")) {
-    		if(args.length<3) {
+    		if(!sender.isOp()) {
+    			sender.sendMessage(ChatColor.RED + "Only Op of the server is allowed to add waypoint!!");
+    		}else if(args.length<3) {
     			sender.sendMessage(ChatColor.RED + "No location name is given!");
     		}else {
     			waypoints.put(args[2], playerLocation);
     			writeWayPoints();
     			sender.sendMessage(ChatColor.BLUE + "Location "+args[2]+" is added to the waypoint list!");
     		}
+    	} else if(args[1].equals("remove")) {
+    		if(!sender.isOp()) {
+    			sender.sendMessage(ChatColor.RED + "Only Op of the server is allowed to remove waypoint!!");
+    		}else if(args.length<3) {
+    			sender.sendMessage(ChatColor.RED + "No location name is given!");
+    		}else if(waypoints.get(args[2])==null){
+    			sender.sendMessage(ChatColor.RED + "The waypoint to be removed does not exist!");
+    		} else {
+    			waypoints.remove(args[2]);
+    			writeWayPoints();
+    			sender.sendMessage(ChatColor.BLUE + "Waypoint "+args[2]+" is removed!");
+    		}
     	} else if(args[1].equals("list")) {
     		if(waypoints.size()==0) {
-    			sender.sendMessage(ChatColor.RED + "No location is defined yet!");
+    			sender.sendMessage(ChatColor.RED + "No waypoint is defined yet!");
     		}else {
     			for(String key:waypoints.keySet()) {
     				Location loc = waypoints.get(key);
     				if(!loc.getWorld().getName().equals(playerWorld)) {
-    					sender.sendMessage(ChatColor.BLUE + "Location: " + key + ", world: "+loc.getWorld().getName());
+    					sender.sendMessage(ChatColor.BLUE + "Name: " + key + ", world: "+loc.getWorld().getName());
     				}else {
     					int cost = calculateTeleportCost(playerLocation, loc);
-        				sender.sendMessage(ChatColor.BLUE + "Location: " + key + ", cost: "+cost);        					
+        				sender.sendMessage(ChatColor.BLUE + "Name: " + key + ", cost: "+cost);        					
     				}
     					
     			}
     		}
     	} else if(args[1].equals("go")) {
     		if(args.length<3) {
-    			sender.sendMessage(ChatColor.RED + "No location name is given!");
+    			sender.sendMessage(ChatColor.RED + "No waypoint name is given!");
     		}else {
     			Location pt = waypoints.get(args[2]);
     			if(pt==null) {
-    				sender.sendMessage(ChatColor.RED + "The given location name does not exist!");
+    				sender.sendMessage(ChatColor.RED + "The given waypoint name does not exist!");
     			}else {
     				if(pt.getWorld().getName().equals(playerWorld)) {
         				int cost = calculateTeleportCost(playerLocation, pt);
